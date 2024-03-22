@@ -9,13 +9,6 @@ import matplotlib.pyplot as plt
 
 torch.manual_seed(42)
 
-# initialize the weight with kaiming
-# def initialize_weights(m):
-#     if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
-#         nn.init.kaiming_normal_(m.weight.data, nonlinearity='relu')
-#         if m.bias is not None:
-#             nn.init.constant_(m.bias.data, 0)
-
 # repeated conv (kernel = 3 * 3, stride = 1, padding = none, activation = Relu)
 def repeat_conv(in_channel, out_channel):
     repeat_conv_layers = nn.Sequential(
@@ -66,58 +59,71 @@ class UNet(nn.Module):
     # crop image to concat down sampling layer and up sampling layer -> enc tensor should be cropped
     def crop_img(self, enc_tensor, dec_tensor):
         # extract size
+        enc_height = enc_tensor.shape[-2]
         enc_width = enc_tensor.shape[-1]
+        dec_height = dec_tensor.shape[-2]
         dec_width = dec_tensor.shape[-1]
 
         # enc_width > dec_width
-        diff_size = enc_width - dec_width
-        diff_range = diff_size // 2
-        return enc_tensor[:, :, diff_range : enc_width - diff_range, diff_range : enc_width - diff_range]
+        diff_size_width = enc_width - dec_width 
+        diff_size_height = enc_height - dec_height 
+        diff_range_width = diff_size_width // 2
+        diff_range_height = diff_size_height // 2
+        check_height = enc_height - 2 * diff_range_height
+        check_width = enc_width - 2 * diff_range_width
+        diff_height = check_height - dec_height
+        diff_width = check_width - dec_width
 
+        return enc_tensor[:, :, diff_range_height : enc_height - diff_range_height - diff_height, diff_range_width : enc_width - diff_range_width - diff_width]
+        
     # concat with enc_tensor and dec_tensor
     def concat(self, enc_tensor, dec_tensor):
         enc_tensor = self.crop_img(enc_tensor, dec_tensor)
         return torch.cat([enc_tensor, dec_tensor], axis=1)
 
     def forward(self, x):
-        # x.shape = [b, c, h, w] = [1, 3, 572, 572]
+        # x.shape = [b, c, h, w] = [1, 3, 1024, 2048]
         # contracting path
         # print(x.shape)
-        enc_layer_1 = self.encoder_1(x)                   # [1, 64, 568, 568]
-        enc_max_pool_1 = self.max_pool(enc_layer_1)       # [1, 64, 268, 268]
+        enc_layer_1 = self.encoder_1(x)                   # [1, 64, 1020, 2044]
+        enc_max_pool_1 = self.max_pool(enc_layer_1)       # [1, 64, 510, 1022]
 
-        enc_layer_2 = self.encoder_2(enc_max_pool_1)      # [1 ,128, 280, 280] 
-        enc_max_pool_2 = self.max_pool(enc_layer_2)       # [1, 128, 140, 140]
+        enc_layer_2 = self.encoder_2(enc_max_pool_1)      # [1 ,128, 506, 1018] 
+        enc_max_pool_2 = self.max_pool(enc_layer_2)       # [1, 128, 253, 509]
 
-        enc_layer_3 = self.encoder_3(enc_max_pool_2)      # [1, 256, 136, 136]
-        enc_max_pool_3 = self.max_pool(enc_layer_3)       # [1, 256, 68, 68]
+        enc_layer_3 = self.encoder_3(enc_max_pool_2)      # [1, 256, 249, 505]
+        enc_max_pool_3 = self.max_pool(enc_layer_3)       # [1, 256, 124, 252]
 
-        enc_layer_4 = self.encoder_4(enc_max_pool_3)      # [1, 512, 64, 64]
-        enc_max_pool_4 = self.max_pool(enc_layer_4)       # [1, 512, 32, 32]
+        enc_layer_4 = self.encoder_4(enc_max_pool_3)      # [1, 512, 120, 248]
+        enc_max_pool_4 = self.max_pool(enc_layer_4)       # [1, 512, 60, 124]
 
-        enc_layer_5 = self.encoder_5(enc_max_pool_4)      # [1, 1024, 28, 28]
+        enc_layer_5 = self.encoder_5(enc_max_pool_4)      # [1, 1024, 56, 120]
         enc_layer_5 = self.dropout(enc_layer_5)           # drop out
 
-        # expansive path with concat
-        dec_layer4 = self.upsampling_1(enc_layer_5)       # [1, 512, 56, 56]
-        dec_layer4 = self.concat(enc_layer_4, dec_layer4) # [1, 1024, 56, 56]  concat encoder layer4 and decoder layer 4
-        dec_layer4 = self.decoder_4(dec_layer4)           # [1, 512, 52, 52]
+        # # expansive path with concat
+        dec_layer4 = self.upsampling_1(enc_layer_5)       # [1, 512, 112, 240]
+        dec_layer4 = self.concat(enc_layer_4, dec_layer4) # [1, 1024, 112, 240]  concat encoder layer4 and decoder layer 4
+        dec_layer4 = self.decoder_4(dec_layer4)           # [1, 512, 108, 236]
 
-        dec_layer3 = self.upsampling_2(dec_layer4)        # [1, 256, 104, 104]
-        dec_layer3 = self.concat(enc_layer_3, dec_layer3) # [1, 512, 104, 104]
-        dec_layer3 = self.decoder_3(dec_layer3)           # [1, 256, 100, 100]
+        dec_layer3 = self.upsampling_2(dec_layer4)        # [1, 256, 216, 472]
+        dec_layer3 = self.concat(enc_layer_3, dec_layer3) # [1, 512, 216, 472]
+        dec_layer3 = self.decoder_3(dec_layer3)           # [1, 256, 212, 468]
 
-        dec_layer2 = self.upsampling_3(dec_layer3)        # [1, 128, 200, 200]
-        dec_layer2 = self.concat(enc_layer_2, dec_layer2) # [1, 256, 200, 200]
-        dec_layer2 = self.decoder_2(dec_layer2)           # [1, 128, 196, 196]
+        dec_layer2 = self.upsampling_3(dec_layer3)        # [1, 128, 424, 936]
+        dec_layer2 = self.concat(enc_layer_2, dec_layer2) # [1, 256, 424, 936]
+        dec_layer2 = self.decoder_2(dec_layer2)           # [1, 128, 420, 932]
 
-        dec_layer1 = self.upsampling_4(dec_layer2)        # [1, 64, 392, 392]
-        dec_layer1 = self.concat(enc_layer_1, dec_layer1) # [1, 128, 392, 392]
-        dec_layer1 = self.decoder_1(dec_layer1)           # [1, 64, 388, 388]
+        dec_layer1 = self.upsampling_4(dec_layer2)        # [1, 64, 840, 1864]
+        dec_layer1 = self.concat(enc_layer_1, dec_layer1) # [1, 128, 840, 1864]
+        dec_layer1 = self.decoder_1(dec_layer1)           # [1, 64, 836, 1860]
 
-        # seg_tensor
-        output = self.out(dec_layer1)                     # [1, 19, 388, 388]
+        # # seg_tensor
+        output = self.out(dec_layer1)                     # [1, 19, 836, 1860]
+        
 
         return output
+
+
+
 
 
